@@ -254,6 +254,9 @@ footer{margin-top:32px;text-align:center;font-size:.66rem;color:rgba(106,138,170
       <canvas id="viz" width="520" height="76"></canvas>
     </div>
     <div id="status">Enter text above and press speak</div>
+    <div id="iosHint" style="display:none;margin-top:6px;text-align:center;font-size:.72rem;color:rgba(240,180,41,.75);">
+      🔇 No sound? Flip the Ring/Silent switch off and raise the volume.
+    </div>
     <div class="translation-wrap">
       <div class="translation-label">Rocky's English rendering</div>
       <div id="rocky-text">—</div>
@@ -372,8 +375,26 @@ function moodMods(m){
   return t[m] || t.neutral;
 }
 
+// iOS: Web Audio is "ambient" by default, so the Ring/Silent switch mutes
+// it entirely. Reclassify as media playback (iOS 17+ Audio Session API),
+// and keep a looped silent <audio> element playing as the fallback that
+// flips the audio session to playback on older iOS.
+let silentEl = null;
+function unlockPlayback(){
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch(e){}
+  if (!silentEl){
+    silentEl = document.createElement('audio');
+    silentEl.setAttribute('playsinline', '');
+    silentEl.loop = true;
+    silentEl.volume = 0.01;
+    silentEl.src = 'data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+  }
+  silentEl.play().catch(() => {});
+}
+
 // iOS: AudioContext must be created + resumed inside a user gesture.
 async function getAudioContext(){
+  unlockPlayback();
   if (!audioCtx || audioCtx.state === 'closed'){
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
@@ -506,6 +527,7 @@ async function speak(){
 
   const dur = scheduleMessage(ac, messageBus, text, currentParams(), ac.currentTime + 0.08);
   setStatus(`🎵 Rocky is speaking… (~${Math.ceil(dur)}s)`, 'speaking');
+  if ('ontouchend' in window) document.getElementById('iosHint').style.display = 'block';
   drawSpeakerViz();
   playTimer = setTimeout(() => { if (isPlaying) finishPlayback(); }, (dur + 0.4) * 1000);
 }
@@ -632,6 +654,7 @@ async function toggleListen(){
 function startListening(stream){
   micStream = stream;
   isListening = true;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch(e){}
 
   listenerAC = new (window.AudioContext || window.webkitAudioContext)();
   if (listenerAC.state === 'suspended') listenerAC.resume();
@@ -657,6 +680,7 @@ function startListening(stream){
 
 function stopListening(){
   isListening = false;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch(e){}
   if (micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   if (listenerAC){ listenerAC.close(); listenerAC = null; }
   cancelAnimationFrame(listenerAnimFrame);
