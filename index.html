@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#07091a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Rocky Speaks — Project Hail Mary</title>
+<style>
+:root {
+  --navy:#07091a; --deep:#0d1230; --blue:#00c8f0; --gold:#f0b429;
+  --green:#00e87a; --red:#ff4d6d; --text:#e8f4ff; --muted:#6a8aaa;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;background:var(--navy);color:var(--text);font-family:system-ui,-apple-system,sans-serif;overflow-x:hidden;}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    radial-gradient(1px 1px at 8% 18%,rgba(255,255,255,.5) 0%,transparent 100%),
+    radial-gradient(1px 1px at 25% 65%,rgba(255,255,255,.3) 0%,transparent 100%),
+    radial-gradient(1.5px 1.5px at 47% 9%,rgba(255,255,255,.6) 0%,transparent 100%),
+    radial-gradient(1px 1px at 68% 82%,rgba(255,255,255,.4) 0%,transparent 100%),
+    radial-gradient(1px 1px at 88% 38%,rgba(255,255,255,.3) 0%,transparent 100%),
+    radial-gradient(1px 1px at 14% 88%,rgba(255,255,255,.25) 0%,transparent 100%),
+    radial-gradient(1.5px 1.5px at 53% 52%,rgba(255,255,255,.45) 0%,transparent 100%),
+    radial-gradient(1px 1px at 79% 13%,rgba(255,255,255,.5) 0%,transparent 100%),
+    radial-gradient(1px 1px at 41% 74%,rgba(255,255,255,.4) 0%,transparent 100%),
+    radial-gradient(1px 1px at 62% 29%,rgba(255,255,255,.35) 0%,transparent 100%),
+    radial-gradient(1px 1px at 36% 23%,rgba(255,255,255,.35) 0%,transparent 100%),
+    radial-gradient(1.5px 1.5px at 4% 48%,rgba(255,255,255,.5) 0%,transparent 100%);
+}
+.wrapper{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:28px 14px 60px;}
+
+header{text-align:center;margin-bottom:22px;}
+.club-banner{
+  display:inline-flex;align-items:center;gap:7px;
+  margin-bottom:14px;padding:6px 18px;
+  background:rgba(240,180,41,.10);
+  border:1px solid rgba(240,180,41,.35);
+  border-radius:20px;
+  font-size:.72rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--gold);
+  box-shadow:0 0 18px rgba(240,180,41,.12);
+}
+.rocky-icon{font-size:52px;line-height:1;margin-bottom:8px;filter:drop-shadow(0 0 16px rgba(0,200,240,.5));animation:float 4s ease-in-out infinite;}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+h1{font-size:clamp(1.4rem,5vw,2.2rem);font-weight:800;letter-spacing:-.5px;
+  background:linear-gradient(135deg,var(--blue),var(--gold));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px;}
+.subtitle{color:var(--muted);font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;}
+
+/* Tabs */
+.tabs{display:flex;gap:0;width:100%;max-width:560px;margin-bottom:18px;border-radius:14px;overflow:hidden;border:1px solid rgba(0,200,240,.18);}
+.tab{flex:1;padding:13px;text-align:center;cursor:pointer;font-size:.85rem;font-weight:700;
+  letter-spacing:.04em;text-transform:uppercase;background:rgba(13,18,48,.6);color:var(--muted);
+  transition:all .2s;-webkit-tap-highlight-color:transparent;border:none;}
+.tab.active.speaker{background:rgba(0,200,240,.15);color:var(--blue);box-shadow:inset 0 -2px 0 var(--blue);}
+.tab.active.listener{background:rgba(0,232,122,.12);color:var(--green);box-shadow:inset 0 -2px 0 var(--green);}
+
+/* Card */
+.card{background:rgba(13,18,48,.75);border:1px solid rgba(0,200,240,.2);border-radius:20px;
+  padding:22px 18px;width:100%;max-width:560px;backdrop-filter:blur(14px);
+  box-shadow:0 8px 40px rgba(0,0,0,.5);}
+.card.listener-card{border-color:rgba(0,232,122,.2);}
+
+/* Speaker */
+.input-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;color:var(--blue);margin-bottom:7px;display:block;}
+textarea{width:100%;background:rgba(0,0,0,.3);border:1px solid rgba(0,200,240,.25);border-radius:12px;
+  color:var(--text);font-size:1rem;font-family:inherit;padding:12px 14px;resize:none;height:82px;
+  outline:none;transition:border-color .2s;-webkit-appearance:none;}
+textarea:focus{border-color:var(--blue);}
+textarea::placeholder{color:var(--muted);}
+.examples{margin-top:10px;}
+.examples-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:6px;display:block;}
+.example-list{display:flex;flex-wrap:wrap;gap:5px;}
+.ex-btn{padding:4px 9px;border-radius:8px;border:1px solid rgba(240,180,41,.22);background:rgba(240,180,41,.06);
+  color:rgba(240,180,41,.72);font-size:.7rem;cursor:pointer;transition:all .2s;-webkit-tap-highlight-color:transparent;}
+.ex-btn:hover{border-color:var(--gold);color:var(--gold);}
+.controls{margin-top:14px;display:flex;flex-direction:column;gap:10px;}
+.control-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.control-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;min-width:58px;}
+.slider-wrap{flex:1;display:flex;align-items:center;gap:8px;}
+input[type=range]{-webkit-appearance:none;flex:1;height:4px;background:rgba(0,200,240,.18);border-radius:2px;outline:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:var(--blue);box-shadow:0 0 7px var(--blue);cursor:pointer;}
+.slider-val{font-size:.76rem;color:var(--gold);min-width:34px;text-align:right;}
+.mood-btns{display:flex;gap:6px;flex-wrap:wrap;}
+.mood-btn{padding:4px 12px;border-radius:20px;border:1px solid rgba(0,200,240,.22);background:transparent;
+  color:var(--muted);font-size:.76rem;cursor:pointer;transition:all .2s;-webkit-tap-highlight-color:transparent;}
+.mood-btn.active{background:rgba(0,200,240,.13);border-color:var(--blue);color:var(--blue);}
+.speak-btn{margin-top:16px;width:100%;padding:15px;border-radius:14px;border:none;
+  background:linear-gradient(135deg,#0090b8,#00c8f0);color:#07091a;font-size:1rem;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;cursor:pointer;transition:all .2s;
+  box-shadow:0 4px 22px rgba(0,200,240,.32);-webkit-tap-highlight-color:transparent;
+  display:flex;align-items:center;justify-content:center;gap:9px;}
+.speak-btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,200,240,.48);}
+.speak-btn.playing{background:linear-gradient(135deg,#b8820a,#f0b429);
+  animation:pulse-btn .8s ease-in-out infinite;}
+@keyframes pulse-btn{0%,100%{box-shadow:0 4px 22px rgba(240,180,41,.38)}50%{box-shadow:0 4px 34px rgba(240,180,41,.65)}}
+
+/* Viz */
+.viz-wrap{margin-top:18px;position:relative;}
+canvas#viz{width:100%;height:76px;border-radius:12px;background:rgba(0,0,0,.26);
+  border:1px solid rgba(0,200,240,.09);display:block;}
+.viz-label{position:absolute;top:7px;left:11px;font-size:.6rem;text-transform:uppercase;
+  letter-spacing:.1em;color:rgba(0,200,240,.32);}
+#status{margin-top:11px;text-align:center;font-size:.78rem;color:var(--muted);min-height:18px;}
+#status.speaking{color:var(--blue);}
+#status.done{color:var(--gold);}
+.translation-wrap{margin-top:14px;padding:12px 14px;background:rgba(0,0,0,.2);border-radius:12px;border:1px solid rgba(240,180,41,.16);}
+.translation-label{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:rgba(240,180,41,.42);margin-bottom:6px;}
+#rocky-text{font-size:.86rem;color:var(--gold);line-height:1.65;font-style:italic;min-height:20px;}
+
+/* ═══ LISTENER PANE ═══ */
+.live-indicator{display:flex;align-items:center;gap:8px;margin-bottom:16px;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);}
+.live-dot.live{background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 1s step-end infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+.listen-btn{
+  width:100%;padding:16px;border-radius:14px;border:none;cursor:pointer;
+  background:linear-gradient(135deg,#009a50,#00e87a);color:#07091a;
+  font-size:1rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  transition:all .2s;box-shadow:0 4px 22px rgba(0,232,122,.3);
+  -webkit-tap-highlight-color:transparent;
+  display:flex;align-items:center;justify-content:center;gap:9px;}
+.listen-btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,232,122,.45);}
+.listen-btn.recording{
+  background:linear-gradient(135deg,#a0001e,#ff4d6d);
+  box-shadow:0 4px 22px rgba(255,77,109,.35);
+  animation:pulse-rec 1s ease-in-out infinite;}
+@keyframes pulse-rec{0%,100%{box-shadow:0 4px 22px rgba(255,77,109,.35)}50%{box-shadow:0 4px 34px rgba(255,77,109,.65)}}
+
+canvas#lviz{width:100%;height:70px;border-radius:12px;background:rgba(0,0,0,.26);
+  border:1px solid rgba(0,232,122,.1);display:block;margin-top:16px;}
+
+/* Confidence meter */
+.conf-bar-wrap{margin-top:10px;display:flex;align-items:center;gap:8px;}
+.conf-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);white-space:nowrap;}
+.conf-bar-bg{flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;}
+.conf-bar-fill{height:100%;width:0%;border-radius:3px;transition:width .2s,background .2s;
+  background:var(--green);}
+
+/* Transcript */
+.transcript-wrap{margin-top:18px;padding:15px 16px;background:rgba(0,0,0,.25);
+  border-radius:14px;border:1px solid rgba(0,232,122,.16);min-height:100px;}
+.transcript-label{font-size:.62rem;text-transform:uppercase;letter-spacing:.1em;
+  color:rgba(0,232,122,.4);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+.clear-btn{font-size:.62rem;cursor:pointer;color:var(--muted);background:none;border:none;
+  text-transform:uppercase;letter-spacing:.08em;padding:2px 6px;border-radius:4px;
+  border:1px solid rgba(255,255,255,.1);}
+.clear-btn:hover{color:var(--text);}
+#transcript{font-size:1.1rem;line-height:1.75;color:var(--text);min-height:40px;word-break:break-word;}
+.utterance{display:block;margin-bottom:4px;}
+.utterance.old{opacity:.45;}
+.char-token{display:inline-block;opacity:0;transform:translateY(5px);animation:char-appear .25s forwards;}
+@keyframes char-appear{to{opacity:1;transform:translateY(0)}}
+.char-token.fresh{color:var(--green);}
+
+#listenStatus{margin-top:10px;font-size:.78rem;color:var(--muted);text-align:center;min-height:18px;}
+#listenStatus.active{color:var(--green);}
+#listenStatus.error{color:var(--red);}
+
+/* Self-test */
+.selftest-row{margin-top:12px;display:flex;align-items:center;gap:10px;}
+.selftest-btn{padding:8px 14px;border-radius:10px;border:1px solid rgba(0,200,240,.3);
+  background:rgba(0,200,240,.07);color:var(--blue);font-size:.74rem;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.selftest-btn:hover{background:rgba(0,200,240,.15);}
+#selftestResult{font-size:.74rem;color:var(--muted);flex:1;line-height:1.4;}
+#selftestResult.pass{color:var(--green);}
+#selftestResult.fail{color:var(--red);}
+
+/* How it works note */
+.how-it-works{margin-top:16px;padding:12px 14px;background:rgba(0,200,240,.05);
+  border:1px solid rgba(0,200,240,.12);border-radius:12px;}
+.how-it-works p{font-size:.74rem;color:var(--muted);line-height:1.55;}
+.how-it-works strong{color:var(--blue);}
+
+footer{margin-top:32px;text-align:center;font-size:.66rem;color:rgba(106,138,170,.3);}
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <header>
+    <div class="club-banner">📚 Serrano Men's Book Club</div>
+    <div class="rocky-icon">🕷️</div>
+    <h1>Rocky Speaks</h1>
+    <div class="subtitle">Eridian Language Synthesizer · Project Hail Mary</div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active speaker" id="tabSpeaker" onclick="switchMode('speaker')">🎙️ Speaker</button>
+    <button class="tab listener" id="tabListener" onclick="switchMode('listener')">👂 Listener</button>
+  </div>
+
+  <!-- ═══ SPEAKER PANE ═══ -->
+  <div class="card" id="speakerPane">
+    <label class="input-label" for="userInput">English → Eridian audio</label>
+    <textarea id="userInput" placeholder='Try "Fist my bump!" then listen on another device' maxlength="200"></textarea>
+
+    <div class="examples">
+      <span class="examples-label">Movie phrases</span>
+      <div class="example-list">
+        <button class="ex-btn" onclick="setEx('Hello Grace. Question?')">Hello Grace</button>
+        <button class="ex-btn" onclick="setEx('Fist my bump!')">Fist my bump!</button>
+        <button class="ex-btn" onclick="setEx('Big science. Save Earth. Save Aris. Good plan.')">Save both</button>
+        <button class="ex-btn" onclick="setEx('Amaze. Amaze. Amaze!')">Amaze×3</button>
+        <button class="ex-btn" onclick="setEx('Grace look disgust when eat. Why?')">Grace eat bad</button>
+        <button class="ex-btn" onclick="setEx('Why is school teacher in space. Question.')">School teacher</button>
+        <button class="ex-btn" onclick="setEx('Dirty. Dirty. Dirty. Why roof so messy?')">Dirty roof</button>
+        <button class="ex-btn" onclick="setEx('Rocky want to see human technology.')">Human tech</button>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="control-row">
+        <span class="control-label">Mood</span>
+        <div class="mood-btns">
+          <button class="mood-btn active" onclick="setMood(this,'neutral')">Neutral</button>
+          <button class="mood-btn" onclick="setMood(this,'excited')">Excited 🎉</button>
+          <button class="mood-btn" onclick="setMood(this,'grave')">Grave 😔</button>
+          <button class="mood-btn" onclick="setMood(this,'curious')">Curious ❓</button>
+          <button class="mood-btn" onclick="setMood(this,'amaze')">Amaze!</button>
+        </div>
+      </div>
+      <div class="control-row">
+        <span class="control-label">Speed</span>
+        <div class="slider-wrap">
+          <input type="range" id="speedSlider" min="0.6" max="1.5" step="0.05" value="1.0"
+            oninput="document.getElementById('speedVal').textContent=this.value+'×'">
+          <span class="slider-val" id="speedVal">1.0×</span>
+        </div>
+      </div>
+      <div class="control-row">
+        <span class="control-label">Timbre</span>
+        <div class="slider-wrap">
+          <input type="range" id="timbreSlider" min="0" max="1" step="0.05" value="0.45"
+            oninput="document.getElementById('timbreVal').textContent=timbreLabel(this.value)">
+          <span class="slider-val" id="timbreVal">Whale</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="speak-btn" id="speakBtn" onclick="speak()">
+      <span id="btnIcon">🎵</span>
+      <span id="btnText">Make Rocky Speak</span>
+    </button>
+
+    <div class="viz-wrap">
+      <span class="viz-label">Eridian Waveform</span>
+      <canvas id="viz" width="520" height="76"></canvas>
+    </div>
+    <div id="status">Enter text above and press speak</div>
+    <div class="translation-wrap">
+      <div class="translation-label">Rocky's English rendering</div>
+      <div id="rocky-text">—</div>
+    </div>
+  </div>
+
+  <!-- ═══ LISTENER PANE ═══ -->
+  <div class="card listener-card" id="listenerPane" style="display:none;">
+
+    <div class="live-indicator">
+      <div class="live-dot" id="liveDot"></div>
+      <span id="liveLabel">Acoustic decoder — works across any two devices, no network needed</span>
+    </div>
+
+    <button class="listen-btn" id="listenBtn" onclick="toggleListen()">
+      <span id="listenBtnIcon">🎤</span>
+      <span id="listenBtnText">Start Listening</span>
+    </button>
+
+    <div id="httpsWarning" style="display:none;margin-top:14px;padding:16px;background:rgba(255,77,109,.08);border:1px solid rgba(255,77,109,.3);border-radius:14px;">
+      <p style="font-size:.88rem;font-weight:700;color:var(--red);margin-bottom:8px;">🔒 Microphone needs HTTPS</p>
+      <p style="font-size:.78rem;color:var(--muted);line-height:1.6;">
+        Safari on iPhone/iPad blocks microphone access on plain HTTP and in file previews.
+        Open this app at its hosted address instead — same page, mic works there.
+      </p>
+    </div>
+
+    <canvas id="lviz" width="520" height="70"></canvas>
+
+    <div class="conf-bar-wrap">
+      <span class="conf-label">Signal</span>
+      <div class="conf-bar-bg"><div class="conf-bar-fill" id="confBar"></div></div>
+      <span class="slider-val" id="confPct" style="min-width:38px;">—</span>
+    </div>
+
+    <div id="listenStatus">Press Start Listening, then play Eridian audio near the mic</div>
+
+    <div class="transcript-wrap">
+      <div class="transcript-label">
+        <span>Eridian → English</span>
+        <button class="clear-btn" onclick="clearTranscript()">Clear</button>
+      </div>
+      <div id="transcript"><span class="placeholder" style="color:var(--muted);font-size:.85rem;font-style:italic;">Words will appear here as Rocky speaks…</span></div>
+    </div>
+
+    <div class="selftest-row">
+      <button class="selftest-btn" onclick="runSelfTest()">🧪 Loopback test</button>
+      <span id="selftestResult">Verifies encoder→decoder without a mic</span>
+    </div>
+
+    <div class="how-it-works">
+      <p><strong>How it works:</strong> Each character is sung as a chord of two pure tones — one from a low set, one from a high set (the same trick touch-tone phones used, tuned for phone speakers). Eridian decoration voices (sub-bass swells, vibrato overtones) ride on top but never touch the signal tones. The listener's mic runs a live FFT, watches the 16 signal frequencies, and votes each chord into a character. No server, no ML, pure math.</p>
+    </div>
+  </div>
+
+  <footer>Rocky Speaks v2 · Fan project · Andy Weir's Project Hail Mary · ChrisBot 2026</footer>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// ROCKY SPEAKS v2 — Eridian Synthesizer + Acoustic Character Decoder
+//
+// Protocol (v2): each character = one dual-tone chord (DTMF-style).
+//   symbol index = lowIdx*8 + highIdx  →  64 symbols
+//   0–42  : a-z 0-9 space . , ! ? ' -
+//   62    : END marker
+//   63    : START marker
+// Tones sit at fixed absolute frequencies, so the decoder just snaps to a
+// grid — no continuous-space fingerprint matching, no mood/pitch ambiguity.
+// Mood & timbre only shape tempo + decoration voices, never the signal tones.
+// ═══════════════════════════════════════════════════════════════════════
+
+const TONE_LOW  = [720, 800, 880, 960, 1040, 1120, 1200, 1280];
+const TONE_HIGH = [1600, 1720, 1840, 1960, 2080, 2200, 2320, 2440];
+const ALPHABET  = "abcdefghijklmnopqrstuvwxyz0123456789 .,!?'-"; // 43 symbols
+const SYM_START = 63, SYM_END = 62;
+
+const BASE_TONE_MS = 120, BASE_GAP_MS = 60;
+const MIN_TONE_MS  = 75,  MIN_GAP_MS  = 45;
+
+function symbolTones(sym){ return [TONE_LOW[sym >> 3], TONE_HIGH[sym & 7]]; }
+function charToSym(ch){ const i = ALPHABET.indexOf(ch); return i >= 0 ? i : -1; }
+
+function normalizeText(t){
+  return t.toLowerCase().split('').map(c => ALPHABET.includes(c) ? c : ' ')
+          .join('').replace(/ +/g,' ').trim();
+}
+
+// deterministic per-char hash — decoration variety only
+function hashStr(s){
+  let h = 5381;
+  for (let i = 0; i < s.length; i++){ h = ((h<<5)+h) ^ s.charCodeAt(i); h |= 0; }
+  return (h>>>0)/0xFFFFFFFF;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// SPEAKER SYNTH ENGINE
+// ────────────────────────────────────────────────────────────────────
+let mood = 'neutral';
+let currentMode = 'speaker';
+let audioCtx = null;
+let analyserSpeaker = null;
+let isPlaying = false;
+let animFrameSpeaker = null;
+let messageBus = null;   // per-message gain node so Stop can cut everything
+let playTimer = null;
+
+function moodMods(m){
+  const t = {
+    neutral:{tempo:1.0, vib:.02, deco:1.0, sub:1.0},
+    excited:{tempo:1.22, vib:.05, deco:1.3, sub:.8},
+    grave:  {tempo:0.72, vib:.008, deco:1.1, sub:1.6},
+    curious:{tempo:1.05, vib:.03, deco:1.0, sub:1.0},
+    amaze:  {tempo:1.32, vib:.07, deco:1.5, sub:.9},
+  };
+  return t[m] || t.neutral;
+}
+
+// iOS: AudioContext must be created + resumed inside a user gesture.
+async function getAudioContext(){
+  if (!audioCtx || audioCtx.state === 'closed'){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  return audioCtx;
+}
+
+// One dual-tone symbol + Eridian decoration, scheduled at absolute time t0.
+function scheduleSymbol(ac, dest, sym, t0, dur, opts){
+  const [lowF, highF] = symbolTones(sym);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(1.0, t0 + 0.010);
+  g.gain.setValueAtTime(1.0, t0 + dur * 0.7);
+  g.gain.linearRampToValueAtTime(0.0001, t0 + dur - 0.005);
+  g.connect(dest);
+  const stopAt = t0 + dur + 0.03;
+
+  // Signal tones — pure sines, never detuned (the decoder depends on them)
+  [[lowF, 0.42], [highF, 0.34]].forEach(([f, amp]) => {
+    const o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f, t0);
+    const og = ac.createGain(); og.gain.setValueAtTime(amp, t0);
+    o.connect(og); og.connect(g);
+    o.start(t0); o.stop(stopAt);
+  });
+
+  // Decoration: sub-voice at lowF/2 with vibrato (below the signal band)
+  const decoAmt = opts.timbre * opts.mm.deco;
+  if (decoAmt > 0.02){
+    const sub = ac.createOscillator(); sub.type = 'sine';
+    sub.frequency.setValueAtTime(lowF / 2, t0);
+    const lfo = ac.createOscillator(); lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(3 + opts.h * 7, t0);
+    const lg = ac.createGain(); lg.gain.setValueAtTime((lowF/2) * opts.mm.vib, t0);
+    lfo.connect(lg); lg.connect(sub.frequency);
+    const sg = ac.createGain(); sg.gain.setValueAtTime(0.28 * decoAmt * opts.mm.sub, t0);
+    sub.connect(sg); sg.connect(g);
+    sub.start(t0); sub.stop(stopAt); lfo.start(t0); lfo.stop(stopAt);
+
+    // Shimmer overtone above the signal band, gliding down slightly
+    const sh = ac.createOscillator(); sh.type = 'triangle';
+    sh.frequency.setValueAtTime(highF * 2.3, t0);
+    sh.frequency.exponentialRampToValueAtTime(highF * 2.05, t0 + dur);
+    const shg = ac.createGain(); shg.gain.setValueAtTime(0.05 * decoAmt, t0);
+    sh.connect(shg); shg.connect(g);
+    sh.start(t0); sh.stop(stopAt);
+  }
+}
+
+// Decorative chirp bracketing each message ("Rocky call") — sweeps, so it
+// never registers as a dual-tone symbol.
+function scheduleChirp(ac, dest, t0, up){
+  const o = ac.createOscillator(); o.type = 'sine';
+  const f0 = up ? 420 : 1500, f1 = up ? 1500 : 420;
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(f1, t0 + 0.28);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(0.14, t0 + 0.05);
+  g.gain.linearRampToValueAtTime(0.0001, t0 + 0.30);
+  o.connect(g); g.connect(dest);
+  o.start(t0); o.stop(t0 + 0.34);
+}
+
+// Schedule a full message into any destination (live ctx or OfflineAudioContext).
+// Returns total duration in seconds.
+function scheduleMessage(ac, dest, text, params, startAt){
+  const mm = params.mm;
+  const rate = params.speed * mm.tempo;
+  const tone = Math.max(MIN_TONE_MS, BASE_TONE_MS / rate) / 1000;
+  const gap  = Math.max(MIN_GAP_MS,  BASE_GAP_MS  / rate) / 1000;
+  const norm = normalizeText(text);
+
+  let t = startAt;
+  scheduleChirp(ac, dest, t, true); t += 0.34;
+
+  const syms = [SYM_START, SYM_START];
+  for (const ch of norm) syms.push(charToSym(ch));
+  syms.push(SYM_END);
+
+  let prev = -1;
+  for (let i = 0; i < syms.length; i++){
+    const s = syms[i];
+    if (s < 0) continue;
+    const h = hashStr(norm + i);
+    scheduleSymbol(ac, dest, s, t, tone, {timbre: params.timbre, mm, h});
+    let g = gap;
+    if (s === prev) g = gap * 1.6;                    // repeats need a clear gap
+    if (ALPHABET[s] === ' ') g = gap * 1.8;           // breathe between words
+    if (".!?".includes(ALPHABET[s] || '')) g = gap * 2.4;
+    t += tone + g;
+    prev = s;
+  }
+  scheduleChirp(ac, dest, t, false); t += 0.34;
+  return t - startAt;
+}
+
+function currentParams(){
+  return {
+    speed: parseFloat(document.getElementById('speedSlider').value),
+    timbre: parseFloat(document.getElementById('timbreSlider').value),
+    mm: moodMods(mood),
+  };
+}
+
+const canvas = document.getElementById('viz');
+const ctx2d  = canvas.getContext('2d');
+
+async function speak(){
+  const text = document.getElementById('userInput').value.trim();
+  if (!text){ setStatus('Enter some text first!'); return; }
+  if (isPlaying){ stopPlayback(); return; }
+  const ac = await getAudioContext();
+
+  isPlaying = true;
+  document.getElementById('speakBtn').classList.add('playing');
+  document.getElementById('btnIcon').textContent = '⏹';
+  document.getElementById('btnText').textContent = 'Stop';
+  document.getElementById('rocky-text').textContent = rockyTranslate(text);
+
+  analyserSpeaker = ac.createAnalyser();
+  analyserSpeaker.fftSize = 512;
+  analyserSpeaker.smoothingTimeConstant = 0.82;
+
+  messageBus = ac.createGain();
+  messageBus.gain.value = 0.9;
+  messageBus.connect(analyserSpeaker);
+  analyserSpeaker.connect(ac.destination);
+
+  const dur = scheduleMessage(ac, messageBus, text, currentParams(), ac.currentTime + 0.08);
+  setStatus(`🎵 Rocky is speaking… (~${Math.ceil(dur)}s)`, 'speaking');
+  drawSpeakerViz();
+  playTimer = setTimeout(() => { if (isPlaying) finishPlayback(); }, (dur + 0.4) * 1000);
+}
+
+function stopPlayback(){
+  if (messageBus){ try{ messageBus.disconnect(); }catch(e){} messageBus = null; }
+  clearTimeout(playTimer);
+  finishPlayback();
+}
+function finishPlayback(){
+  isPlaying = false;
+  document.getElementById('speakBtn').classList.remove('playing');
+  document.getElementById('btnIcon').textContent = '🎵';
+  document.getElementById('btnText').textContent = 'Make Rocky Speak';
+  setStatus('✓ Amaze! Rocky has spoken.', 'done');
+  cancelAnimationFrame(animFrameSpeaker);
+  drawIdleSpeakerViz();
+}
+
+// ────────────────────────────────────────────────────────────────────
+// DECODER CORE — shared by the live mic path and the loopback self-test.
+// Feed it one frame of tone energies at a time (any linear scale).
+// ────────────────────────────────────────────────────────────────────
+function makeSymbolDecoder(onSymbol, onLevel){
+  // Run-based decoding: a symbol is a run of consecutive frames agreeing on
+  // the same dual-tone pair. A run commits when the signal gaps OR when a
+  // different symbol takes over (2-frame debounce) — the latter is what
+  // survives room echo, which fills gaps with the previous symbol's tail.
+  let runSym = -1, runLen = 0, pendSym = -1, gapFrames = 99, peak = 0;
+  function commitRun(){
+    if (runSym >= 0 && runLen >= 2) onSymbol(runSym, Math.min(1, runLen / 4));
+    runSym = -1; runLen = 0; pendSym = -1;
+  }
+  return {
+    push(low, high){
+      const all = [...low, ...high].sort((a,b) => a-b);
+      const sum = all.reduce((a,b) => a+b, 0);
+      const floor = (all[6] + all[7] + all[8]) / 3;   // median of the 14 non-signal bins
+      let li = 0, hi = 0;
+      for (let i = 1; i < 8; i++){
+        if (low[i]  > low[li])  li = i;
+        if (high[i] > high[hi]) hi = i;
+      }
+      const lv = low[li], hv = high[hi];
+      const lvl = lv + hv;
+      // Decaying peak tracker: direct sound sets it, echo tails fall below it.
+      const strong = lvl > 0.45 * peak;
+      peak = Math.max(lvl, peak * (strong ? 0.995 : 0.96));
+      const present = sum > 1e-6 && strong
+        && lv > 2.5 * floor + 1e-4
+        && hv > 2.5 * floor + 1e-4
+        && lvl > 0.5 * sum;
+      if (onLevel) onLevel(present ? Math.min(1, lvl / Math.max(sum, 1e-9)) : 0);
+      if (present){
+        gapFrames = 0;
+        const sym = li * 8 + hi;
+        if (sym === runSym){ runLen++; pendSym = -1; }
+        else if (sym === pendSym){ commitRun(); runSym = sym; runLen = 2; }
+        else if (runSym < 0){ runSym = sym; runLen = 1; }
+        else pendSym = sym;   // single deviant frame — wait for confirmation
+      } else {
+        gapFrames++;
+        if (gapFrames === 2) commitRun();
+      }
+    },
+    flush(){ commitRun(); },
+  };
+}
+
+// Assembles decoded symbols into transcript text.
+function makeAssembler(cb){
+  let active = false;
+  return (sym, conf) => {
+    if (sym === SYM_START){
+      if (!active){ active = true; cb.onStart(); }
+    } else if (sym === SYM_END){
+      if (active){ active = false; cb.onEnd(); }
+    } else if (sym >= 0 && sym < ALPHABET.length){
+      if (!active){ active = true; cb.onStart(); }  // tolerate missed START
+      cb.onChar(ALPHABET[sym], conf);
+    }
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LIVE LISTENER — mic → AnalyserNode FFT → decoder
+// ────────────────────────────────────────────────────────────────────
+let isListening = false;
+let listenerAC = null;
+let listenerAnalyser = null;
+let micStream = null;
+let listenerAnimFrame = null;
+
+const lcanvas = document.getElementById('lviz');
+const lctx = lcanvas.getContext('2d');
+
+async function toggleListen(){
+  if (isListening){ stopListening(); return; }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setListenStatus('⚠️ Microphone unavailable — this page must be opened over HTTPS', 'error');
+    document.getElementById('httpsWarning').style.display = 'block';
+    return;
+  }
+
+  try {
+    // Voice-processing filters mangle pure tones — turn them all off.
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      video: false,
+    });
+    startListening(stream);
+  } catch(e){
+    if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError'){
+      setListenStatus('Microphone permission denied — Settings → Apps → Safari → Microphone', 'error');
+    } else if (e.name === 'NotFoundError'){
+      setListenStatus('No microphone found on this device', 'error');
+    } else {
+      setListenStatus('Mic error: ' + e.message, 'error');
+    }
+  }
+}
+
+function startListening(stream){
+  micStream = stream;
+  isListening = true;
+
+  listenerAC = new (window.AudioContext || window.webkitAudioContext)();
+  if (listenerAC.state === 'suspended') listenerAC.resume();
+  const source = listenerAC.createMediaStreamSource(stream);
+  listenerAnalyser = listenerAC.createAnalyser();
+  listenerAnalyser.fftSize = 2048;              // ~43ms window @48k — shorter than one tone
+  listenerAnalyser.smoothingTimeConstant = 0;   // no smearing across symbol gaps
+  source.connect(listenerAnalyser);
+  // never connect mic to destination (feedback)
+
+  document.getElementById('listenBtn').classList.add('recording');
+  document.getElementById('listenBtnIcon').textContent = '⏹';
+  document.getElementById('listenBtnText').textContent = 'Stop Listening';
+  setListenStatus('🟢 Listening — play Eridian audio near this device', 'active');
+  document.getElementById('liveDot').classList.add('live');
+
+  const decoder = makeSymbolDecoder(
+    makeAssembler(transcriptCallbacks()),
+    lvl => updateConfBar(lvl)
+  );
+  runDecodeLoop(decoder);
+}
+
+function stopListening(){
+  isListening = false;
+  if (micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (listenerAC){ listenerAC.close(); listenerAC = null; }
+  cancelAnimationFrame(listenerAnimFrame);
+  document.getElementById('listenBtn').classList.remove('recording');
+  document.getElementById('listenBtnIcon').textContent = '🎤';
+  document.getElementById('listenBtnText').textContent = 'Start Listening';
+  setListenStatus('Stopped', '');
+  document.getElementById('liveDot').classList.remove('live');
+  updateConfBar(0);
+  drawIdleListenerViz();
+}
+
+function runDecodeLoop(decoder){
+  const bufLen = listenerAnalyser.frequencyBinCount;
+  const freqData = new Uint8Array(bufLen);
+  const sr = listenerAC.sampleRate;
+  const binW = (sr / 2) / bufLen;
+  // Analyser bytes are dB-scaled; convert to linear amplitude so the
+  // decoder's gap/echo level logic sees real loudness ratios.
+  const DB_MIN = listenerAnalyser.minDecibels, DB_SPAN = listenerAnalyser.maxDecibels - DB_MIN;
+  const byteToAmp = v => v === 0 ? 0 : Math.pow(10, (DB_MIN + v * DB_SPAN / 255) / 20);
+  const binEnergy = f => {
+    const b = Math.round(f / binW);
+    return byteToAmp(Math.max(freqData[b-1] || 0, freqData[b] || 0, freqData[b+1] || 0));
+  };
+  function frame(){
+    if (!isListening) return;
+    listenerAnimFrame = requestAnimationFrame(frame);
+    listenerAnalyser.getByteFrequencyData(freqData);
+    drawListenerViz(freqData, binW);
+    decoder.push(TONE_LOW.map(binEnergy), TONE_HIGH.map(binEnergy));
+  }
+  frame();
+}
+
+// ────────────────────────────────────────────────────────────────────
+// TRANSCRIPT UI
+// ────────────────────────────────────────────────────────────────────
+let currentUtterance = null;
+function transcriptCallbacks(){
+  return {
+    onStart(){
+      const el = document.getElementById('transcript');
+      const ph = el.querySelector('.placeholder');
+      if (ph) el.innerHTML = '';
+      el.querySelectorAll('.utterance').forEach(u => u.classList.add('old'));
+      currentUtterance = document.createElement('span');
+      currentUtterance.className = 'utterance';
+      el.appendChild(currentUtterance);
+      el.scrollTop = el.scrollHeight;
+    },
+    onChar(ch){
+      if (!currentUtterance) this.onStart();
+      const span = document.createElement('span');
+      span.className = 'char-token fresh';
+      span.textContent = ch;
+      currentUtterance.appendChild(span);
+      setTimeout(() => span.classList.remove('fresh'), 900);
+    },
+    onEnd(){
+      setListenStatus('✓ Message received', 'active');
+    },
+  };
+}
+
+function updateConfBar(conf){
+  const pct = Math.round(conf * 100);
+  document.getElementById('confBar').style.width = pct + '%';
+  document.getElementById('confBar').style.background =
+    conf > 0.6 ? 'var(--green)' : conf > 0.35 ? 'var(--gold)' : 'var(--red)';
+  document.getElementById('confPct').textContent = conf > 0 ? pct + '%' : '—';
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LOOPBACK SELF-TEST — render a message offline, decode it with Goertzel,
+// verify the round trip. No mic, no speaker. Exercises the exact same
+// scheduleMessage() and makeSymbolDecoder() as the real paths.
+// ────────────────────────────────────────────────────────────────────
+function goertzel(samples, start, len, freq, sr){
+  const w = 2 * Math.PI * freq / sr, coeff = 2 * Math.cos(w);
+  let s1 = 0, s2 = 0;
+  const end = Math.min(start + len, samples.length);
+  for (let i = start; i < end; i++){
+    const s0 = samples[i] + coeff * s1 - s2;
+    s2 = s1; s1 = s0;
+  }
+  return Math.sqrt(Math.max(s1*s1 + s2*s2 - coeff*s1*s2, 0)) / len;
+}
+
+async function loopbackDecode(text, params, mangle){
+  const sr = 48000;
+  // rough duration estimate: chirps + symbols at slowest plausible rate
+  const n = normalizeText(text).length + 3;
+  const estimate = 1.2 + n * ((BASE_TONE_MS + BASE_GAP_MS * 2.4) / 1000) / (params.speed * params.mm.tempo * 0.7);
+  const oac = new OfflineAudioContext(1, Math.ceil(sr * (estimate + 1)), sr);
+  scheduleMessage(oac, oac.destination, text, params, 0.15);
+  const buf = await oac.startRendering();
+  const ch = buf.getChannelData(0);
+  if (mangle) mangle(ch);
+
+  let out = '';
+  const assembler = makeAssembler({ onStart(){}, onChar(c){ out += c; }, onEnd(){} });
+  const decoder = makeSymbolDecoder(assembler);
+  const WIN = 2048, HOP = 512;
+  for (let p = 0; p + WIN <= ch.length; p += HOP){
+    // raw linear amplitudes — the decoder's checks are ratio-based, and the
+    // gap/echo logic NEEDS absolute level differences preserved
+    const en = f => goertzel(ch, p, WIN, f, sr);
+    decoder.push(TONE_LOW.map(en), TONE_HIGH.map(en));
+  }
+  decoder.flush();
+  return out;
+}
+
+async function runSelfTest(){
+  const el = document.getElementById('selftestResult');
+  el.className = ''; el.textContent = 'Running…';
+  const text = document.getElementById('userInput').value.trim() || 'fist my bump! amaze.';
+  const expected = normalizeText(text);
+  try {
+    // Pass 1: clean. Pass 2: attenuated + noisy (simulates across-the-room).
+    const clean = await loopbackDecode(text, currentParams());
+    const noisy = await loopbackDecode(text, currentParams(), ch => {
+      let seed = 12345;
+      const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5;
+      for (let i = 0; i < ch.length; i++) ch[i] = ch[i] * 0.12 + rnd() * 0.01;
+    });
+    const ok1 = clean === expected, ok2 = noisy === expected;
+    if (ok1 && ok2){
+      el.className = 'pass';
+      el.textContent = `✓ PASS — "${expected}" decoded perfectly (clean + noisy)`;
+    } else {
+      el.className = 'fail';
+      el.textContent = `✗ clean:"${clean}" noisy:"${noisy}" expected:"${expected}"`;
+    }
+  } catch(e){
+    el.className = 'fail';
+    el.textContent = 'Test error: ' + e.message;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// VISUALIZERS
+// ────────────────────────────────────────────────────────────────────
+function drawSpeakerViz(){
+  if (!analyserSpeaker){ drawIdleSpeakerViz(); return; }
+  const W = canvas.width / devicePixelRatio, H = canvas.height / devicePixelRatio;
+  const bufLen = analyserSpeaker.frequencyBinCount, data = new Uint8Array(bufLen);
+  function frame(){
+    animFrameSpeaker = requestAnimationFrame(frame);
+    analyserSpeaker.getByteFrequencyData(data);
+    ctx2d.clearRect(0,0,W,H);
+    ctx2d.fillStyle = 'rgba(7,9,26,.5)'; ctx2d.fillRect(0,0,W,H);
+    const bw = (W/bufLen)*2.2; let x = 0;
+    for (let i = 0; i < bufLen; i++){
+      const v = data[i]/255; if (v < 0.02){ x += bw; continue; }
+      const bh = v*H*.92, hue = 185 + v*55;
+      ctx2d.fillStyle = `hsla(${hue},${75+v*25}%,${38+v*48}%,${.65+v*.35})`;
+      ctx2d.fillRect(x, H-bh, bw-1, bh);
+      if (v > 0.5){ ctx2d.fillStyle = `hsla(${hue},100%,85%,${(v-.5)*.6})`; ctx2d.fillRect(x, H-bh-2, bw-1, 2); }
+      x += bw;
+    }
+  }
+  frame();
+}
+function drawIdleSpeakerViz(){
+  const W = canvas.width/devicePixelRatio, H = canvas.height/devicePixelRatio;
+  ctx2d.clearRect(0,0,W,H); ctx2d.fillStyle = 'rgba(7,9,26,.65)'; ctx2d.fillRect(0,0,W,H);
+  const now = Date.now()/1000;
+  ctx2d.strokeStyle = 'rgba(0,200,240,.16)'; ctx2d.lineWidth = 1.5; ctx2d.beginPath();
+  for (let x = 0; x < W; x++){
+    const y = H/2 + Math.sin(x/28+now)*5 + Math.sin(x/13+now*1.4)*3;
+    x === 0 ? ctx2d.moveTo(x,y) : ctx2d.lineTo(x,y);
+  }
+  ctx2d.stroke();
+}
+function speakerIdleLoop(){ if (!isPlaying) drawIdleSpeakerViz(); requestAnimationFrame(speakerIdleLoop); }
+speakerIdleLoop();
+
+function drawListenerViz(freqData, binW){
+  const W = lcanvas.width/devicePixelRatio, H = lcanvas.height/devicePixelRatio;
+  lctx.clearRect(0,0,W,H);
+  lctx.fillStyle = 'rgba(7,9,26,.55)'; lctx.fillRect(0,0,W,H);
+  // show 400–2800 Hz band with signal-tone guides
+  const loB = Math.floor(400/binW), hiB = Math.ceil(2800/binW), span = hiB - loB;
+  lctx.fillStyle = 'rgba(0,232,122,.07)';
+  for (const f of [...TONE_LOW, ...TONE_HIGH]){
+    lctx.fillRect(((f/binW)-loB)/span*W - 1, 0, 2, H);
+  }
+  const bw = W/span;
+  for (let i = loB; i < hiB; i++){
+    const v = (freqData[i] || 0)/255; if (v < 0.04) continue;
+    const bh = v*H*.88;
+    lctx.fillStyle = `rgba(0,${150+Math.round(v*105)},${80+Math.round(v*42)},${.55+v*.45})`;
+    lctx.fillRect((i-loB)*bw, H-bh, Math.max(bw-0.5,1), bh);
+  }
+}
+function drawIdleListenerViz(){
+  const W = lcanvas.width/devicePixelRatio, H = lcanvas.height/devicePixelRatio;
+  lctx.clearRect(0,0,W,H); lctx.fillStyle = 'rgba(7,9,26,.7)'; lctx.fillRect(0,0,W,H);
+  const now = Date.now()/1000;
+  lctx.strokeStyle = 'rgba(0,232,122,.13)'; lctx.lineWidth = 1.5; lctx.beginPath();
+  for (let x = 0; x < W; x++){
+    const y = H/2 + Math.sin(x/22+now)*4 + Math.sin(x/11+now*1.2)*2.5;
+    x === 0 ? lctx.moveTo(x,y) : lctx.lineTo(x,y);
+  }
+  lctx.stroke();
+}
+function listenerIdleLoop(){ if (!isListening) drawIdleListenerViz(); requestAnimationFrame(listenerIdleLoop); }
+listenerIdleLoop();
+
+// ────────────────────────────────────────────────────────────────────
+// UI HELPERS
+// ────────────────────────────────────────────────────────────────────
+function switchMode(m){
+  currentMode = m;
+  document.getElementById('tabSpeaker').className = 'tab' + (m === 'speaker' ? ' active speaker' : '');
+  document.getElementById('tabListener').className = 'tab' + (m === 'listener' ? ' active listener' : '');
+  document.getElementById('speakerPane').style.display = m === 'speaker' ? '' : 'none';
+  document.getElementById('listenerPane').style.display = m === 'listener' ? '' : 'none';
+  resizeCanvas();
+}
+function setMood(btn, m){
+  mood = m;
+  document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function setEx(txt){
+  document.getElementById('userInput').value = txt;
+  document.getElementById('rocky-text').textContent = rockyTranslate(txt);
+}
+function setStatus(msg, cls){ const el = document.getElementById('status'); el.textContent = msg; el.className = cls || ''; }
+function setListenStatus(msg, cls){ const el = document.getElementById('listenStatus'); el.textContent = msg; el.className = cls || ''; }
+function timbreLabel(v){ return ['Whale','Whale','Mid','Alien','Piccolo'][Math.round(v*4)]; }
+function clearTranscript(){
+  currentUtterance = null;
+  document.getElementById('transcript').innerHTML =
+    '<span class="placeholder" style="color:var(--muted);font-size:.85rem;font-style:italic;">Words will appear here as Rocky speaks…</span>';
+}
+
+function rockyTranslate(text){
+  return text
+    .replace(/\b(I am|I'm)\b/gi,'Rocky speak:').replace(/\bI\b/g,'Grace')
+    .replace(/\b(the|a|an)\b/gi,'').replace(/\b(is|are|was|were)\b/gi,'')
+    .replace(/\b(very|really|extremely)\b/gi,'much')
+    .replace(/\byes\b/gi,'Yes. Confirm.').replace(/\bno\b/gi,'No. Deny.')
+    .replace(/\bhello\b/gi,'Hello Grace.')
+    .replace(/\b(great|amazing|wonderful|awesome)\b/gi,'Amaze!')
+    .replace(/\b(bad|terrible)\b/gi,'Not good. Not good.')
+    .replace(/\?/g,' Question?').replace(/  +/g,' ').trim();
+}
+
+function resizeCanvas(){
+  [canvas, lcanvas].forEach(c => {
+    const r = c.getBoundingClientRect();
+    if (r.width === 0) return;   // hidden pane — resize on tab switch instead
+    const dpr = devicePixelRatio || 1;
+    c.width = r.width * dpr; c.height = r.height * dpr;
+    c.getContext('2d').scale(dpr, dpr);
+  });
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// iOS: warm up the AudioContext on the very first touch so the first
+// speak tap plays instantly.
+document.addEventListener('touchend', async () => {
+  try {
+    const ac = await getAudioContext();
+    const buf = ac.createBuffer(1, 1, 22050);
+    const src = ac.createBufferSource();
+    src.buffer = buf; src.connect(ac.destination); src.start(0);
+  } catch(e){}
+}, { once: true, passive: true });
+</script>
+</body>
+</html>

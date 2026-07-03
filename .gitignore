@@ -1,0 +1,6 @@
+*.pem
+*.bak
+__pycache__/
+.claude/
+server.py
+index-v1.html
