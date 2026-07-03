@@ -185,7 +185,7 @@ footer{margin-top:32px;text-align:center;font-size:.66rem;color:rgba(106,138,170
 <div class="wrapper">
 
   <header>
-    <div class="club-banner">📚 Serrano Men's Book Club</div>
+    <div class="club-banner">🤖 A ChrisBot Production</div>
     <div class="rocky-icon">🕷️</div>
     <h1>Rocky Speaks</h1>
     <div class="subtitle">Eridian Language Synthesizer · Project Hail Mary</div>
@@ -308,7 +308,7 @@ footer{margin-top:32px;text-align:center;font-size:.66rem;color:rgba(106,138,170
     </div>
 
     <div class="how-it-works">
-      <p><strong>How it works:</strong> Each character is sung as a chord of two pure tones — one from a low set, one from a high set (the same trick touch-tone phones used, tuned for phone speakers). Eridian decoration voices (sub-bass swells, vibrato overtones) ride on top but never touch the signal tones. The listener's mic runs a live FFT, watches the 16 signal frequencies, and votes each chord into a character. No server, no ML, pure math.</p>
+      <p><strong>How it works:</strong> Each character is sung as a chord of two pure tones — one from a low set, one from a high set (the same trick touch-tone phones used, tuned for phone speakers). Every word also gets its own whale-register drone chord with vibrato — that's the voice of Rocky — but the drones live below the signal band and never confuse the decoder. Word breaks are silences, decoded back into spaces by their length. The listener's mic runs a live FFT, watches the 16 signal frequencies, and votes each chord into a character. No server, no ML, pure math.</p>
     </div>
   </div>
 
@@ -326,7 +326,11 @@ footer{margin-top:32px;text-align:center;font-size:.66rem;color:rgba(106,138,170
 //   63    : START marker
 // Tones sit at fixed absolute frequencies, so the decoder just snaps to a
 // grid — no continuous-space fingerprint matching, no mood/pitch ambiguity.
-// Mood & timbre only shape tempo + decoration voices, never the signal tones.
+// Spaces are never transmitted: word boundaries are long silences, and the
+// decoder reconstructs them from gap length.
+// The movie-Rocky sound lives in a decoration layer (per-word drone chords
+// below 700 Hz, shimmer above 2.5 kHz, organic rhythm, reverb) that mood &
+// timbre shape freely — the signal tones are never touched.
 // ═══════════════════════════════════════════════════════════════════════
 
 const TONE_LOW  = [720, 800, 880, 960, 1040, 1120, 1200, 1280];
@@ -334,8 +338,14 @@ const TONE_HIGH = [1600, 1720, 1840, 1960, 2080, 2200, 2320, 2440];
 const ALPHABET  = "abcdefghijklmnopqrstuvwxyz0123456789 .,!?'-"; // 43 symbols
 const SYM_START = 63, SYM_END = 62;
 
-const BASE_TONE_MS = 120, BASE_GAP_MS = 60;
-const MIN_TONE_MS  = 75,  MIN_GAP_MS  = 45;
+const MIN_TONE_MS = 75;
+// Gaps are FIXED (not tempo-scaled) so the decoder can tell them apart:
+// intra-word ~55ms, repeated-char ~95ms, word boundary ~240ms. Spaces are
+// not transmitted as symbols — the decoder reconstructs them from long gaps.
+const GAP_INTRA_MS = 55, GAP_REPEAT_MS = 95, GAP_WORD_MS = 240;
+const SPACE_IDX = ALPHABET.indexOf(' ');
+// v1's movie-calibrated chord shapes — now used by the decoration drones
+const ERIDIAN_INTERVALS = [[0,7,12],[0,5,10],[0,3,7],[0,4,7],[0,3,10],[0,5,12],[0,7,14],[0,4,11]];
 
 function symbolTones(sym){ return [TONE_LOW[sym >> 3], TONE_HIGH[sym & 7]]; }
 function charToSym(ch){ const i = ALPHABET.indexOf(ch); return i >= 0 ? i : -1; }
@@ -381,7 +391,10 @@ function moodMods(m){
 // flips the audio session to playback on older iOS.
 let silentEl = null;
 function unlockPlayback(){
-  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch(e){}
+  // Never force 'playback' while the mic is open — that category forbids
+  // capture and iOS kills getUserMedia with an AudioSession error.
+  try { if (navigator.audioSession) navigator.audioSession.type = isListening ? 'play-and-record' : 'playback'; } catch(e){}
+  if (isListening) return;
   if (!silentEl){
     silentEl = document.createElement('audio');
     silentEl.setAttribute('playsinline', '');
@@ -402,19 +415,66 @@ async function getAudioContext(){
   return audioCtx;
 }
 
-// One dual-tone symbol + Eridian decoration, scheduled at absolute time t0.
-function scheduleSymbol(ac, dest, sym, t0, dur, opts){
-  const [lowF, highF] = symbolTones(sym);
+// ── Word DNA: deterministic per-word voice for the decoration layer ──
+// This is what restores the movie sound: every word gets its own whale-
+// register drone chord, vibrato rate, and rhythm, like v1's wordDNA.
+function wordDNA(word){
+  const w = word.replace(/[^a-z0-9]/g,'') || 'x';
+  const h1 = hashStr(w), h2 = hashStr(w+'|chord'), h3 = hashStr(w+'|vib');
+  return {
+    droneBase: 100 * Math.pow(2, h1 * 1.8),          // 100–350 Hz whale register
+    chord: ERIDIAN_INTERVALS[Math.floor(h2 * 8) & 7],
+    vibRate: 2.5 + h3 * 7,
+  };
+}
+
+// ── Timeline: exact start time + duration for every symbol and drone ──
+function buildTimeline(text, params){
+  const rate = params.speed * params.mm.tempo;
+  const norm = normalizeText(text);
+  const isQ = /\?/.test(norm);
+  const syms = [], drones = [];
+  let t = 0.36;                                       // after opening chirp
+  const mDur = Math.max(MIN_TONE_MS, 105 / rate) / 1000;
+  syms.push({sym: SYM_START, t, dur: mDur}); t += mDur + GAP_REPEAT_MS/1000;
+  syms.push({sym: SYM_START, t, dur: mDur}); t += mDur + GAP_WORD_MS/1000;
+
+  const words = norm.split(' ').filter(Boolean);
+  words.forEach((word, wi) => {
+    const dna = wordDNA(word);
+    const pos = wi / Math.max(words.length - 1, 1);
+    // sentence melody carried by the drones, never the signal tones
+    const arc = isQ ? 1 + pos * 0.3 : 1 + Math.sin(pos * Math.PI) * 0.15;
+    const wStart = t;
+    for (let i = 0; i < word.length; i++){
+      const dur = Math.max(MIN_TONE_MS, (95 + hashStr(word+'|'+i) * 70) / rate) / 1000
+                  * (i === word.length - 1 ? 1.25 : 1);   // word-final lengthening
+      syms.push({sym: charToSym(word[i]), t, dur, dna});
+      t += dur + (word[i+1] === word[i] ? GAP_REPEAT_MS : GAP_INTRA_MS) / 1000;
+    }
+    drones.push({dna, t: wStart, dur: t - GAP_INTRA_MS/1000 - wStart, arc});
+    t += (GAP_WORD_MS - GAP_INTRA_MS) / 1000 + (".!?".includes(word[word.length-1]) ? 0.15 : 0);
+  });
+  syms.push({sym: SYM_END, t, dur: mDur});
+  t += mDur + 0.45;
+  return {syms, drones, duration: t};
+}
+
+// One dual-tone symbol + shimmer, scheduled from a timeline event.
+function scheduleSymbol(ac, dest, ev, startAt, params){
+  if (ev.sym < 0) return;
+  const t0 = startAt + ev.t, dur = ev.dur;
+  const [lowF, highF] = symbolTones(ev.sym);
   const g = ac.createGain();
   g.gain.setValueAtTime(0, t0);
-  g.gain.linearRampToValueAtTime(1.0, t0 + 0.010);
-  g.gain.setValueAtTime(1.0, t0 + dur * 0.7);
-  g.gain.linearRampToValueAtTime(0.0001, t0 + dur - 0.005);
+  g.gain.linearRampToValueAtTime(1.0, t0 + 0.020);    // soft breathy attack
+  g.gain.setValueAtTime(1.0, t0 + dur * 0.72);
+  g.gain.linearRampToValueAtTime(0.0001, t0 + dur - 0.004);
   g.connect(dest);
   const stopAt = t0 + dur + 0.03;
 
   // Signal tones — pure sines, never detuned (the decoder depends on them)
-  [[lowF, 0.42], [highF, 0.34]].forEach(([f, amp]) => {
+  [[lowF, 0.40], [highF, 0.30]].forEach(([f, amp]) => {
     const o = ac.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(f, t0);
     const og = ac.createGain(); og.gain.setValueAtTime(amp, t0);
@@ -422,27 +482,44 @@ function scheduleSymbol(ac, dest, sym, t0, dur, opts){
     o.start(t0); o.stop(stopAt);
   });
 
-  // Decoration: sub-voice at lowF/2 with vibrato (below the signal band)
-  const decoAmt = opts.timbre * opts.mm.deco;
-  if (decoAmt > 0.02){
-    const sub = ac.createOscillator(); sub.type = 'sine';
-    sub.frequency.setValueAtTime(lowF / 2, t0);
-    const lfo = ac.createOscillator(); lfo.type = 'sine';
-    lfo.frequency.setValueAtTime(3 + opts.h * 7, t0);
-    const lg = ac.createGain(); lg.gain.setValueAtTime((lowF/2) * opts.mm.vib, t0);
-    lfo.connect(lg); lg.connect(sub.frequency);
-    const sg = ac.createGain(); sg.gain.setValueAtTime(0.28 * decoAmt * opts.mm.sub, t0);
-    sub.connect(sg); sg.connect(g);
-    sub.start(t0); sub.stop(stopAt); lfo.start(t0); lfo.stop(stopAt);
+  // Airy shimmer overtone gliding down, above the signal band
+  const sh = ac.createOscillator(); sh.type = 'triangle';
+  sh.frequency.setValueAtTime(highF * 2.4, t0);
+  sh.frequency.exponentialRampToValueAtTime(highF * 2.02, t0 + dur);
+  const shg = ac.createGain();
+  shg.gain.setValueAtTime((0.04 + params.timbre * 0.09) * params.mm.deco, t0);
+  sh.connect(shg); shg.connect(g);
+  sh.start(t0); sh.stop(stopAt);
+}
 
-    // Shimmer overtone above the signal band, gliding down slightly
-    const sh = ac.createOscillator(); sh.type = 'triangle';
-    sh.frequency.setValueAtTime(highF * 2.3, t0);
-    sh.frequency.exponentialRampToValueAtTime(highF * 2.05, t0 + dur);
-    const shg = ac.createGain(); shg.gain.setValueAtTime(0.05 * decoAmt, t0);
-    sh.connect(shg); shg.connect(g);
-    sh.start(t0); sh.stop(stopAt);
-  }
+// Sustained whale-register drone chord under one whole word — the core of
+// the Rocky sound. Lives entirely below the 720 Hz signal band.
+function scheduleWordDrone(ac, dest, d, startAt, params){
+  const mm = params.mm;
+  const t0 = startAt + d.t, dur = Math.max(d.dur, 0.15);
+  const droneGain = 0.34 * mm.sub * (1.25 - 0.75 * params.timbre);
+  if (droneGain < 0.02) return;
+  const env = ac.createGain();
+  env.gain.setValueAtTime(0, t0);
+  env.gain.linearRampToValueAtTime(1, t0 + Math.min(0.09, dur * 0.4));
+  env.gain.setValueAtTime(1, t0 + dur);
+  env.gain.linearRampToValueAtTime(0.0001, t0 + dur + 0.13);
+  env.connect(dest);
+  const stopAt = t0 + dur + 0.17;
+  d.dna.chord.slice(0, 3).forEach((semis, i) => {
+    let f = d.dna.droneBase * Math.pow(2, semis / 12) * d.arc;
+    while (f > 660) f /= 2;                           // fold below the signal band
+    const o = ac.createOscillator();
+    o.type = i === 0 ? 'sine' : 'triangle';
+    o.frequency.setValueAtTime(f, t0);
+    const lfo = ac.createOscillator(); lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(d.dna.vibRate * (1 + i * 0.17), t0);
+    const lg = ac.createGain(); lg.gain.setValueAtTime(f * mm.vib, t0);
+    lfo.connect(lg); lg.connect(o.frequency);
+    const og = ac.createGain(); og.gain.setValueAtTime(droneGain / (i + 1), t0);
+    o.connect(og); og.connect(env);
+    o.start(t0); o.stop(stopAt); lfo.start(t0); lfo.stop(stopAt);
+  });
 }
 
 // Decorative chirp bracketing each message ("Rocky call") — sweeps, so it
@@ -460,37 +537,33 @@ function scheduleChirp(ac, dest, t0, up){
   o.start(t0); o.stop(t0 + 0.34);
 }
 
+// v1-style echo space. The lowpass darkens the tail so reflections lean
+// whale, not beep; the decoder's peak tracker tolerates the wet level.
+function makeReverbBus(ac, dest, wet){
+  const bus = ac.createGain(); bus.gain.value = 0.85;
+  bus.connect(dest);                                  // dry path
+  const d1 = ac.createDelay(0.5); d1.delayTime.value = 0.071;
+  const d2 = ac.createDelay(0.6); d2.delayTime.value = 0.183;
+  const g1 = ac.createGain(); g1.gain.value = wet;
+  const g2 = ac.createGain(); g2.gain.value = wet * 0.7;
+  const fb = ac.createGain(); fb.gain.value = 0.30;
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800;
+  bus.connect(d1); d1.connect(g1); g1.connect(dest);
+  bus.connect(d2); d2.connect(lp); lp.connect(g2); g2.connect(dest);
+  g2.connect(fb); fb.connect(d2);
+  return bus;
+}
+
 // Schedule a full message into any destination (live ctx or OfflineAudioContext).
 // Returns total duration in seconds.
 function scheduleMessage(ac, dest, text, params, startAt){
-  const mm = params.mm;
-  const rate = params.speed * mm.tempo;
-  const tone = Math.max(MIN_TONE_MS, BASE_TONE_MS / rate) / 1000;
-  const gap  = Math.max(MIN_GAP_MS,  BASE_GAP_MS  / rate) / 1000;
-  const norm = normalizeText(text);
-
-  let t = startAt;
-  scheduleChirp(ac, dest, t, true); t += 0.34;
-
-  const syms = [SYM_START, SYM_START];
-  for (const ch of norm) syms.push(charToSym(ch));
-  syms.push(SYM_END);
-
-  let prev = -1;
-  for (let i = 0; i < syms.length; i++){
-    const s = syms[i];
-    if (s < 0) continue;
-    const h = hashStr(norm + i);
-    scheduleSymbol(ac, dest, s, t, tone, {timbre: params.timbre, mm, h});
-    let g = gap;
-    if (s === prev) g = gap * 1.6;                    // repeats need a clear gap
-    if (ALPHABET[s] === ' ') g = gap * 1.8;           // breathe between words
-    if (".!?".includes(ALPHABET[s] || '')) g = gap * 2.4;
-    t += tone + g;
-    prev = s;
-  }
-  scheduleChirp(ac, dest, t, false); t += 0.34;
-  return t - startAt;
+  const tl = buildTimeline(text, params);
+  const bus = makeReverbBus(ac, dest, 0.14 + params.timbre * 0.07);
+  scheduleChirp(ac, bus, startAt, true);
+  tl.drones.forEach(d => scheduleWordDrone(ac, bus, d, startAt, params));
+  tl.syms.forEach(ev => scheduleSymbol(ac, bus, ev, startAt, params));
+  scheduleChirp(ac, bus, startAt + tl.duration - 0.40, false);
+  return tl.duration;
 }
 
 function currentParams(){
@@ -556,13 +629,35 @@ function makeSymbolDecoder(onSymbol, onLevel){
   // the same dual-tone pair. A run commits when the signal gaps OR when a
   // different symbol takes over (2-frame debounce) — the latter is what
   // survives room echo, which fills gaps with the previous symbol's tail.
-  let runSym = -1, runLen = 0, pendSym = -1, gapFrames = 99, peak = 0;
+  // Gaps are measured in real time (callers pass a timestamp) so word
+  // boundaries — long silences — can be reconstructed as spaces.
+  let runSym = -1, runLen = 0, pendSym = -1, peak = 0, runPeak = 0;
+  let lastT = null, gapSec = 999, runStartT = 0, runEndT = 0;
+  let lastCommitted = -1, lastCommittedPeak = 0, lastCommitEndT = -999;
   function commitRun(){
-    if (runSym >= 0 && runLen >= 2) onSymbol(runSym, Math.min(1, runLen / 4));
-    runSym = -1; runLen = 0; pendSym = -1;
+    if (runSym >= 0 && runLen >= 2){
+      // Echo ghost: the same symbol again, but much quieter than the real
+      // one. Genuine repeated characters replay at full level; reflections
+      // don't. Drop the ghost — and leave lastCommitEndT alone so the ghost
+      // doesn't eat the word gap used for space reconstruction.
+      const ghost = runSym === lastCommitted && runPeak < 0.55 * lastCommittedPeak;
+      if (!ghost){
+        // silence-encoded space: long quiet stretch between two characters,
+        // measured from the end of the last REAL symbol
+        if (runSym < ALPHABET.length && lastCommitted >= 0
+            && lastCommitted < ALPHABET.length && runStartT - lastCommitEndT > 0.15){
+          onSymbol(SPACE_IDX, 1);
+        }
+        onSymbol(runSym, Math.min(1, runLen / 4));
+        lastCommitted = runSym; lastCommittedPeak = runPeak; lastCommitEndT = runEndT;
+      }
+    }
+    runSym = -1; runLen = 0; pendSym = -1; runPeak = 0;
   }
   return {
-    push(low, high){
+    push(low, high, tSec){
+      const dt = lastT === null ? 0.016 : Math.min(0.1, Math.max(0.001, tSec - lastT));
+      lastT = tSec;
       const all = [...low, ...high].sort((a,b) => a-b);
       const sum = all.reduce((a,b) => a+b, 0);
       const floor = (all[6] + all[7] + all[8]) / 3;   // median of the 14 non-signal bins
@@ -573,24 +668,29 @@ function makeSymbolDecoder(onSymbol, onLevel){
       }
       const lv = low[li], hv = high[hi];
       const lvl = lv + hv;
-      // Decaying peak tracker: direct sound sets it, echo tails fall below it.
+      // Decaying peak tracker: direct sound sets it, echo tails fall below
+      // it. Decay slowly in gaps so even late (~100–200ms) reflections of a
+      // word-final character stay under the threshold.
       const strong = lvl > 0.45 * peak;
-      peak = Math.max(lvl, peak * (strong ? 0.995 : 0.96));
+      peak = Math.max(lvl, peak * (strong ? 0.995 : 0.985));
       const present = sum > 1e-6 && strong
         && lv > 2.5 * floor + 1e-4
         && hv > 2.5 * floor + 1e-4
         && lvl > 0.5 * sum;
       if (onLevel) onLevel(present ? Math.min(1, lvl / Math.max(sum, 1e-9)) : 0);
       if (present){
-        gapFrames = 0;
         const sym = li * 8 + hi;
+        if (runSym < 0) runStartT = tSec;
+        gapSec = 0;
+        runPeak = Math.max(runPeak, lvl);
+        runEndT = tSec;
         if (sym === runSym){ runLen++; pendSym = -1; }
-        else if (sym === pendSym){ commitRun(); runSym = sym; runLen = 2; }
+        else if (sym === pendSym){ commitRun(); runSym = sym; runLen = 2; runStartT = tSec; runPeak = lvl; }
         else if (runSym < 0){ runSym = sym; runLen = 1; }
         else pendSym = sym;   // single deviant frame — wait for confirmation
       } else {
-        gapFrames++;
-        if (gapFrames === 2) commitRun();
+        gapSec += dt;
+        if (gapSec >= 0.035 && runSym >= 0) commitRun();
       }
     },
     flush(){ commitRun(); },
@@ -632,6 +732,12 @@ async function toggleListen(){
     document.getElementById('httpsWarning').style.display = 'block';
     return;
   }
+
+  // The audio session must allow capture BEFORE getUserMedia runs: switch
+  // to play-and-record and stop the silent playback-unlock loop, which
+  // would otherwise pin the session to the capture-incompatible 'playback'.
+  try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch(e){}
+  if (silentEl){ silentEl.pause(); }
 
   try {
     // Voice-processing filters mangle pure tones — turn them all off.
@@ -711,7 +817,7 @@ function runDecodeLoop(decoder){
     listenerAnimFrame = requestAnimationFrame(frame);
     listenerAnalyser.getByteFrequencyData(freqData);
     drawListenerViz(freqData, binW);
-    decoder.push(TONE_LOW.map(binEnergy), TONE_HIGH.map(binEnergy));
+    decoder.push(TONE_LOW.map(binEnergy), TONE_HIGH.map(binEnergy), performance.now() / 1000);
   }
   frame();
 }
@@ -772,10 +878,8 @@ function goertzel(samples, start, len, freq, sr){
 
 async function loopbackDecode(text, params, mangle){
   const sr = 48000;
-  // rough duration estimate: chirps + symbols at slowest plausible rate
-  const n = normalizeText(text).length + 3;
-  const estimate = 1.2 + n * ((BASE_TONE_MS + BASE_GAP_MS * 2.4) / 1000) / (params.speed * params.mm.tempo * 0.7);
-  const oac = new OfflineAudioContext(1, Math.ceil(sr * (estimate + 1)), sr);
+  const tl = buildTimeline(text, params);   // exact length, no estimating
+  const oac = new OfflineAudioContext(1, Math.ceil(sr * (tl.duration + 1)), sr);
   scheduleMessage(oac, oac.destination, text, params, 0.15);
   const buf = await oac.startRendering();
   const ch = buf.getChannelData(0);
@@ -789,7 +893,7 @@ async function loopbackDecode(text, params, mangle){
     // raw linear amplitudes — the decoder's checks are ratio-based, and the
     // gap/echo logic NEEDS absolute level differences preserved
     const en = f => goertzel(ch, p, WIN, f, sr);
-    decoder.push(TONE_LOW.map(en), TONE_HIGH.map(en));
+    decoder.push(TONE_LOW.map(en), TONE_HIGH.map(en), p / sr);
   }
   decoder.flush();
   return out;

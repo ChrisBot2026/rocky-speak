@@ -35,4 +35,4 @@ iOS Safari only allows microphone access on real HTTPS pages — not plain
 HTTP, not file previews. GitHub Pages provides that; the app itself is a
 single static HTML file.
 
-*Fan project for the Serrano Men's Book Club · 2026*
+*A ChrisBot production · 2026*
