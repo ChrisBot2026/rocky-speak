@@ -340,9 +340,11 @@ const SYM_START = 63, SYM_END = 62;
 
 const MIN_TONE_MS = 75;
 // Gaps are FIXED (not tempo-scaled) so the decoder can tell them apart:
-// intra-word ~55ms, repeated-char ~95ms, word boundary ~240ms. Spaces are
+// intra-word ~55ms, repeated-char ~95ms, word boundary ~360ms. Spaces are
 // not transmitted as symbols — the decoder reconstructs them from long gaps.
-const GAP_INTRA_MS = 55, GAP_REPEAT_MS = 95, GAP_WORD_MS = 240;
+// The word gap is generous because real-room reverb tails cling to the end
+// of each word and eat into the measured silence.
+const GAP_INTRA_MS = 55, GAP_REPEAT_MS = 95, GAP_WORD_MS = 360;
 const SPACE_IDX = ALPHABET.indexOf(' ');
 // v1's movie-calibrated chord shapes — now used by the decoration drones
 const ERIDIAN_INTERVALS = [[0,7,12],[0,5,10],[0,3,7],[0,4,7],[0,3,10],[0,5,12],[0,7,14],[0,4,11]];
@@ -631,28 +633,43 @@ function makeSymbolDecoder(onSymbol, onLevel){
   // survives room echo, which fills gaps with the previous symbol's tail.
   // Gaps are measured in real time (callers pass a timestamp) so word
   // boundaries — long silences — can be reconstructed as spaces.
-  let runSym = -1, runLen = 0, pendSym = -1, peak = 0, runPeak = 0;
+  let runSym = -1, runLen = 0, pendSym = -1, runPeak = 0, runOnset = 0;
+  let runRefLow = 0, runRefHigh = 0;
   let lastT = null, gapSec = 999, runStartT = 0, runEndT = 0;
   let lastCommitted = -1, lastCommittedPeak = 0, lastCommitEndT = -999;
+  const hist = [];   // last few frames of raw bin energies
+  function startRun(sym, low, high, lvl, tSec){
+    runSym = sym; runLen = 1; runPeak = lvl; runStartT = tSec; runOnset = 0;
+    // Onset reference: this symbol's own two bins a few frames ago. A real
+    // character ATTACKS — its bins rise sharply. Reverb tails, band flips,
+    // and transition chimeras only ever decay, and a bin shared with the
+    // previous character is comb-attenuated identically, so the ratio is
+    // fair even in a nasty room.
+    const ref = hist[Math.max(0, hist.length - 4)] || null;
+    runRefLow  = ref ? ref.low[sym >> 3]  : 0;
+    runRefHigh = ref ? ref.high[sym & 7] : 0;
+  }
   function commitRun(){
     if (runSym >= 0 && runLen >= 2){
-      // Echo ghost: the same symbol again, but much quieter than the real
-      // one. Genuine repeated characters replay at full level; reflections
-      // don't. Drop the ghost — and leave lastCommitEndT alone so the ghost
-      // doesn't eat the word gap used for space reconstruction.
+      // Debris check: no attack = not a played character.
+      const real = runOnset >= 1.45;
+      // Echo ghost: a discrete reflection replays the attack too, but it's
+      // the same symbol again at a fraction of the level. Real repeated
+      // characters replay at full level. Leave lastCommitEndT alone so a
+      // dropped ghost doesn't eat the word gap used for spaces.
       const ghost = runSym === lastCommitted && runPeak < 0.55 * lastCommittedPeak;
-      if (!ghost){
+      if (real && !ghost){
         // silence-encoded space: long quiet stretch between two characters,
         // measured from the end of the last REAL symbol
         if (runSym < ALPHABET.length && lastCommitted >= 0
-            && lastCommitted < ALPHABET.length && runStartT - lastCommitEndT > 0.15){
+            && lastCommitted < ALPHABET.length && runStartT - lastCommitEndT > 0.17){
           onSymbol(SPACE_IDX, 1);
         }
         onSymbol(runSym, Math.min(1, runLen / 4));
         lastCommitted = runSym; lastCommittedPeak = runPeak; lastCommitEndT = runEndT;
       }
     }
-    runSym = -1; runLen = 0; pendSym = -1; runPeak = 0;
+    runSym = -1; runLen = 0; pendSym = -1; runPeak = 0; runOnset = 0;
   }
   return {
     push(low, high, tSec){
@@ -668,30 +685,43 @@ function makeSymbolDecoder(onSymbol, onLevel){
       }
       const lv = low[li], hv = high[hi];
       const lvl = lv + hv;
-      // Decaying peak tracker: direct sound sets it, echo tails fall below
-      // it. Decay slowly in gaps so even late (~100–200ms) reflections of a
-      // word-final character stay under the threshold.
-      const strong = lvl > 0.45 * peak;
-      peak = Math.max(lvl, peak * (strong ? 0.995 : 0.985));
-      const present = sum > 1e-6 && strong
+      const sym = li * 8 + hi;
+      let present = sum > 1e-6
         && lv > 2.5 * floor + 1e-4
         && hv > 2.5 * floor + 1e-4
         && lvl > 0.5 * sum;
+      // Run-relative level gate: a tone has ended when it falls well below
+      // ITS OWN peak — that's its reverb tail, not more tone. Per-run (not
+      // global) so a quiet character after a loud one is never swallowed.
+      if (present && sym === runSym && lvl < 0.45 * runPeak) present = false;
       if (onLevel) onLevel(present ? Math.min(1, lvl / Math.max(sum, 1e-9)) : 0);
       if (present){
-        const sym = li * 8 + hi;
-        if (runSym < 0) runStartT = tSec;
         gapSec = 0;
-        runPeak = Math.max(runPeak, lvl);
         runEndT = tSec;
-        if (sym === runSym){ runLen++; pendSym = -1; }
-        else if (sym === pendSym){ commitRun(); runSym = sym; runLen = 2; runStartT = tSec; runPeak = lvl; }
-        else if (runSym < 0){ runSym = sym; runLen = 1; }
+        if (sym === runSym){
+          runLen++; runPeak = Math.max(runPeak, lvl); pendSym = -1;
+          // Attack tracking stays open for the WHOLE run, against a rolling
+          // 4-frame-old reference: a reverb tail can bridge the gap before a
+          // repeated character and merge with it into one run — the real
+          // attack then happens mid-run and must still count.
+          const ref = hist[Math.max(0, hist.length - 4)];
+          if (ref){
+            runRefLow  = ref.low[sym >> 3];
+            runRefHigh = ref.high[sym & 7];
+          }
+          runOnset = Math.max(runOnset, Math.min(
+            low[sym >> 3]  / Math.max(runRefLow,  1e-6),
+            high[sym & 7] / Math.max(runRefHigh, 1e-6)));
+        }
+        else if (sym === pendSym){ commitRun(); startRun(sym, low, high, lvl, tSec); runLen = 2; }
+        else if (runSym < 0){ startRun(sym, low, high, lvl, tSec); }
         else pendSym = sym;   // single deviant frame — wait for confirmation
       } else {
         gapSec += dt;
         if (gapSec >= 0.035 && runSym >= 0) commitRun();
       }
+      hist.push({low, high});
+      if (hist.length > 6) hist.shift();
     },
     flush(){ commitRun(); },
   };
