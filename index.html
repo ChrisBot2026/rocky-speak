@@ -154,9 +154,12 @@ canvas#lviz{width:100%;height:70px;border-radius:12px;background:rgba(0,0,0,.26)
 #transcript{font-size:1.1rem;line-height:1.75;color:var(--text);min-height:40px;word-break:break-word;}
 .utterance{display:block;margin-bottom:4px;}
 .utterance.old{opacity:.45;}
-.char-token{display:inline-block;opacity:0;transform:translateY(5px);animation:char-appear .25s forwards;}
+.word-token{display:inline-block;opacity:0;transform:translateY(5px);animation:char-appear .25s forwards;border-radius:5px;padding:0 2px;}
 @keyframes char-appear{to{opacity:1;transform:translateY(0)}}
-.char-token.fresh{color:var(--green);}
+.word-token.fresh{color:var(--green);}
+.word-token.ok{color:var(--text);}
+.word-token.corrected{color:var(--gold);background:rgba(240,180,41,.09);}
+.word-token.suspect{color:var(--red);background:rgba(255,77,109,.09);text-decoration:underline dotted;}
 
 #listenStatus{margin-top:10px;font-size:.78rem;color:var(--muted);text-align:center;min-height:18px;}
 #listenStatus.active{color:var(--green);}
@@ -242,6 +245,14 @@ footer{margin-top:32px;text-align:center;font-size:.66rem;color:rgba(106,138,170
           <span class="slider-val" id="timbreVal">Whale</span>
         </div>
       </div>
+      <div class="control-row">
+        <span class="control-label">FEC</span>
+        <div class="mood-btns" id="fecBtns">
+          <button class="mood-btn" data-fec="none" onclick="setFec(this)">Off</button>
+          <button class="mood-btn active" data-fec="checksum" onclick="setFec(this)">Checksum</button>
+          <button class="mood-btn" data-fec="rs" onclick="setFec(this)">Reed–Solomon</button>
+        </div>
+      </div>
     </div>
 
     <button class="speak-btn" id="speakBtn" onclick="speak()">
@@ -269,6 +280,7 @@ footer{margin-top:32px;text-align:center;font-size:.66rem;color:rgba(106,138,170
     <div class="live-indicator">
       <div class="live-dot" id="liveDot"></div>
       <span id="liveLabel">Acoustic decoder — works across any two devices, no network needed</span>
+      <span id="fecDetected" style="margin-left:auto;color:var(--gold);font-size:.68rem;"></span>
     </div>
 
     <button class="listen-btn" id="listenBtn" onclick="toggleListen()">
@@ -346,8 +358,91 @@ const MIN_TONE_MS = 75;
 // of each word and eat into the measured silence.
 const GAP_INTRA_MS = 55, GAP_REPEAT_MS = 95, GAP_WORD_MS = 360;
 const SPACE_IDX = ALPHABET.indexOf(' ');
+// Sentinel the decoder emits for a silence-encoded word boundary. Out of
+// band (>63) so it can never collide with a transmitted symbol — parity
+// values in FEC modes span 0–60 and can legitimately equal 36 (space).
+const SYM_GAP = 100;
 // v1's movie-calibrated chord shapes — now used by the decoration drones
 const ERIDIAN_INTERVALS = [[0,7,12],[0,5,10],[0,3,7],[0,4,7],[0,3,10],[0,5,12],[0,7,14],[0,4,11]];
+
+// ── Forward error correction (per word) ──────────────────────────────
+// Symbols 0–60 form GF(61) (prime field, so no parity value ever collides
+// with the START/END markers at 62/63). α = 2 is primitive mod 61.
+// Modes: none | checksum (1 parity symbol + dictionary snap)
+//              | rs (2 parity symbols, corrects any 1 symbol error).
+// The mode is announced in the header: symbol 50+mode right after START.
+const FEC_MODES = ['none', 'checksum', 'rs'];
+const SYM_MODE_BASE = 50;
+const GF_EXP = [], GF_LOG = [];
+(function(){ let v = 1; for (let i = 0; i < 60; i++){ GF_EXP[i] = v; GF_LOG[v] = i; v = (v * 2) % 61; } })();
+const gadd = (a,b) => (a + b) % 61;
+const gsub = (a,b) => (a - b + 61) % 61;
+const gmul = (a,b) => (a * b) % 61;
+const ginv = a => GF_EXP[(60 - GF_LOG[a]) % 60];
+
+function checksumParity(data){ return data.reduce(gadd, 0); }
+
+function rsParity(data){
+  const k = data.length;
+  let D1 = 0, D2 = 0;
+  for (let i = 0; i < k; i++){
+    D1 = gadd(D1, gmul(data[i], GF_EXP[i % 60]));
+    D2 = gadd(D2, gmul(data[i], GF_EXP[(2*i) % 60]));
+  }
+  const A1 = GF_EXP[k % 60],     B1 = GF_EXP[(k+1) % 60];
+  const A2 = GF_EXP[(2*k) % 60], B2 = GF_EXP[(2*k+2) % 60];
+  const det = gsub(gmul(A1,B2), gmul(B1,A2));
+  const p0 = gmul(gsub(gmul(D2,B1), gmul(D1,B2)), ginv(det));
+  const p1 = gmul(gsub(gmul(D1,A2), gmul(D2,A1)), ginv(det));
+  return [p0, p1];
+}
+
+// Verify/correct one received word (data + 2 parity). Corrects any single
+// symbol error at an unknown position via the two syndromes.
+function rsCheck(word){
+  const n = word.length;
+  if (n < 3 || word.some(s => s > 60)) return { ok: false };
+  let S1 = 0, S2 = 0;
+  for (let i = 0; i < n; i++){
+    S1 = gadd(S1, gmul(word[i], GF_EXP[i % 60]));
+    S2 = gadd(S2, gmul(word[i], GF_EXP[(2*i) % 60]));
+  }
+  if (S1 === 0 && S2 === 0) return { ok: true, data: word.slice(0, -2) };
+  if (S1 === 0 || S2 === 0) return { ok: false };          // >1 error
+  const ap = gmul(S2, ginv(S1));                           // α^position
+  const p = GF_LOG[ap];
+  if (p === undefined || p >= n) return { ok: false };
+  const e = gmul(S1, ginv(ap));                            // error value
+  const fixed = word.slice();
+  fixed[p] = gsub(fixed[p], e);
+  if (p < n - 2 && fixed[p] > 42) return { ok: false };    // not a real char
+  return { ok: true, corrected: true, data: fixed.slice(0, -2) };
+}
+
+// Dictionary for checksum-mode correction: Rocky/movie vocabulary + common
+// English. Checked against the alphabetic core of a word (punct stripped).
+const DICT = new Set(`
+hello grace question amaze fist bump science save earth aris good plan dirty
+why messy teacher space understand rocky friend eat bad beautiful technology
+human eridian yes no big small fast slow hot cold danger safe help need want
+have know see hear feel come go stay think learn teach build fix break ship
+star light dark sound food water air life death astrophage taumoeba petrova
+mission home far close together alone happy sad angry curious afraid brave
+strong weak old new first last give take make find look tell ask work live
+play move stop run walk talk laugh cry love like hate fear hope try fail win
+lose fight sleep wake read write sing dance open push pull hold drop throw
+catch turn fall rise stand sit wait call one two three four five six seven
+eight nine ten zero time day night year now then here there when where who
+what how all some many few more less same other great little long short best
+right wrong high low up down in out on off the end start power energy matter
+wave frequency resonance signal transmit receive encode decode translate
+language communicate speak listen complete success abort emergency critical
+status report a i is it am are was be been being do does did will would can
+could should may might must shall about after again against and any because
+before between both but by during each for from further had has he her here
+him his if into just me my not of or our over own she so than that their
+them they this those through to too under until very we were you your not
+much question confirm deny disgust school roof want`.trim().split(/\s+/));
 
 function symbolTones(sym){ return [TONE_LOW[sym >> 3], TONE_HIGH[sym & 7]]; }
 function charToSym(ch){ const i = ALPHABET.indexOf(ch); return i >= 0 ? i : -1; }
@@ -439,7 +534,10 @@ function buildTimeline(text, params){
   let t = 0.36;                                       // after opening chirp
   const mDur = Math.max(MIN_TONE_MS, 105 / rate) / 1000;
   syms.push({sym: SYM_START, t, dur: mDur}); t += mDur + GAP_REPEAT_MS/1000;
-  syms.push({sym: SYM_START, t, dur: mDur}); t += mDur + GAP_WORD_MS/1000;
+  syms.push({sym: SYM_START, t, dur: mDur}); t += mDur + GAP_INTRA_MS/1000;
+  // header: announce the FEC mode so the listener needs no coordination
+  const fecIdx = Math.max(0, FEC_MODES.indexOf(params.fec || 'none'));
+  syms.push({sym: SYM_MODE_BASE + fecIdx, t, dur: mDur}); t += mDur + GAP_WORD_MS/1000;
 
   const words = norm.split(' ').filter(Boolean);
   words.forEach((word, wi) => {
@@ -447,12 +545,16 @@ function buildTimeline(text, params){
     const pos = wi / Math.max(words.length - 1, 1);
     // sentence melody carried by the drones, never the signal tones
     const arc = isQ ? 1 + pos * 0.3 : 1 + Math.sin(pos * Math.PI) * 0.15;
+    // word → symbol values, then FEC parity symbols appended
+    const wsyms = [...word].map(charToSym).filter(s => s >= 0);
+    if (fecIdx === 1) wsyms.push(checksumParity(wsyms));
+    else if (fecIdx === 2) wsyms.push(...rsParity(wsyms));
     const wStart = t;
-    for (let i = 0; i < word.length; i++){
+    for (let i = 0; i < wsyms.length; i++){
       const dur = Math.max(MIN_TONE_MS, (95 + hashStr(word+'|'+i) * 70) / rate) / 1000
-                  * (i === word.length - 1 ? 1.25 : 1);   // word-final lengthening
-      syms.push({sym: charToSym(word[i]), t, dur, dna});
-      t += dur + (word[i+1] === word[i] ? GAP_REPEAT_MS : GAP_INTRA_MS) / 1000;
+                  * (i === wsyms.length - 1 ? 1.25 : 1);  // word-final lengthening
+      syms.push({sym: wsyms[i], t, dur, dna});
+      t += dur + (wsyms[i+1] === wsyms[i] ? GAP_REPEAT_MS : GAP_INTRA_MS) / 1000;
     }
     drones.push({dna, t: wStart, dur: t - GAP_INTRA_MS/1000 - wStart, arc});
     t += (GAP_WORD_MS - GAP_INTRA_MS) / 1000 + (".!?".includes(word[word.length-1]) ? 0.15 : 0);
@@ -568,11 +670,18 @@ function scheduleMessage(ac, dest, text, params, startAt){
   return tl.duration;
 }
 
+let fecMode = 'checksum';
+function setFec(btn){
+  fecMode = btn.dataset.fec;
+  document.querySelectorAll('#fecBtns .mood-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
 function currentParams(){
   return {
     speed: parseFloat(document.getElementById('speedSlider').value),
     timbre: parseFloat(document.getElementById('timbreSlider').value),
     mm: moodMods(mood),
+    fec: fecMode,
   };
 }
 
@@ -659,11 +768,11 @@ function makeSymbolDecoder(onSymbol, onLevel){
       // dropped ghost doesn't eat the word gap used for spaces.
       const ghost = runSym === lastCommitted && runPeak < 0.55 * lastCommittedPeak;
       if (real && !ghost){
-        // silence-encoded space: long quiet stretch between two characters,
-        // measured from the end of the last REAL symbol
-        if (runSym < ALPHABET.length && lastCommitted >= 0
-            && lastCommitted < ALPHABET.length && runStartT - lastCommitEndT > 0.17){
-          onSymbol(SPACE_IDX, 1);
+        // silence-encoded space: long quiet stretch between two symbols
+        // (chars or parity), measured from the end of the last REAL symbol
+        if (runSym <= 60 && lastCommitted >= 0
+            && lastCommitted <= 60 && runStartT - lastCommitEndT > 0.17){
+          onSymbol(SYM_GAP, 1);
         }
         onSymbol(runSym, Math.min(1, runLen / 4));
         lastCommitted = runSym; lastCommittedPeak = runPeak; lastCommitEndT = runEndT;
@@ -727,18 +836,85 @@ function makeSymbolDecoder(onSymbol, onLevel){
   };
 }
 
-// Assembles decoded symbols into transcript text.
-function makeAssembler(cb){
-  let active = false;
-  return (sym, conf) => {
-    if (sym === SYM_START){
-      if (!active){ active = true; cb.onStart(); }
-    } else if (sym === SYM_END){
-      if (active){ active = false; cb.onEnd(); }
-    } else if (sym >= 0 && sym < ALPHABET.length){
-      if (!active){ active = true; cb.onStart(); }  // tolerate missed START
-      cb.onChar(ALPHABET[sym], conf);
+// ── Word finalization: verify/correct one word's symbols per FEC mode ──
+// Returns {text, status} where status ∈ plain | ok | corrected | suspect.
+function symsToText(data){
+  return data.filter(s => s >= 0 && s <= 42).map(s => ALPHABET[s]).join('');
+}
+function inDict(data){
+  const core = symsToText(data).replace(/[^a-z0-9']/g, '');
+  return core.length > 0 && DICT.has(core);
+}
+function finalizeWord(wsyms, mode){
+  if (!wsyms.length) return null;
+  if (mode === 'checksum' && wsyms.length >= 2){
+    const data = wsyms.slice(0, -1), q = wsyms[wsyms.length - 1];
+    const sum = checksumParity(data);
+    if (sum === q) return { text: symsToText(data), status: 'ok' };
+    // Single-error candidates that would satisfy the checksum:
+    const cands = [];
+    const delta = gsub(sum, q);
+    for (let i = 0; i < data.length; i++){          // substitution at i
+      const t = gsub(data[i], delta);
+      if (t <= 42 && t !== data[i]) cands.push(data.slice(0, i).concat([t], data.slice(i + 1)));
     }
+    const missing = gsub(q, sum);                    // a dropped character
+    if (missing <= 42)
+      for (let i = 0; i <= data.length; i++)
+        cands.push(data.slice(0, i).concat([missing], data.slice(i)));
+    for (let i = 0; i < data.length; i++)            // a spurious character
+      if (gsub(sum, data[i]) === q) cands.push(data.slice(0, i).concat(data.slice(i + 1)));
+    const dictHits = cands.filter(inDict);
+    const uniq = new Set(dictHits.map(symsToText));
+    if (uniq.size === 1) return { text: [...uniq][0], status: 'corrected' };
+    if (inDict(data)) return { text: symsToText(data), status: 'corrected' }; // parity itself was hit
+    return { text: symsToText(data), status: 'suspect' };
+  }
+  if (mode === 'rs' && wsyms.length >= 3){
+    const r = rsCheck(wsyms);
+    if (r.ok) return { text: symsToText(r.data), status: r.corrected ? 'corrected' : 'ok' };
+    return { text: symsToText(wsyms.slice(0, -2)), status: 'suspect' };
+  }
+  // mode none — or a word too short to carry its parity (treat as suspect
+  // in FEC modes so a mangled fragment is never shown as verified)
+  return { text: symsToText(wsyms), status: mode === 'none' ? 'plain' : 'suspect' };
+}
+
+// Assembles decoded symbols into words, applying the active FEC mode.
+// Mode is taken from the header symbol (50+mode) right after START.
+function makeAssembler(cb){
+  let active = false, expectMode = false, mode = 'none', wsyms = [], lastSymT = 0;
+  function endWord(){
+    const w = finalizeWord(wsyms, mode);
+    wsyms = [];
+    if (w && w.text) cb.onWord(w.text, w.status);
+  }
+  return {
+    push(sym, conf, tSec){
+      lastSymT = tSec || 0;
+      if (sym === SYM_START){
+        if (!active){ active = true; cb.onStart(); }
+        wsyms = []; expectMode = true;
+      } else if (sym === SYM_END){
+        endWord();
+        if (active){ active = false; cb.onEnd(); }
+      } else if (sym === SYM_GAP){
+        endWord();
+      } else if (expectMode && sym >= SYM_MODE_BASE && sym < SYM_MODE_BASE + FEC_MODES.length){
+        mode = FEC_MODES[sym - SYM_MODE_BASE];
+        expectMode = false;
+        if (cb.onMode) cb.onMode(mode);
+      } else if (sym >= 0 && sym <= 60){
+        if (!active){ active = true; cb.onStart(); }  // tolerate missed START
+        expectMode = false;
+        wsyms.push(sym);
+      }
+    },
+    // if END is lost, close the trailing word after a long idle
+    idleFlush(nowSec){
+      if (wsyms.length && nowSec - lastSymT > 1.2){ endWord(); }
+    },
+    flush(){ endWord(); },
   };
 }
 
@@ -807,11 +983,12 @@ function startListening(stream){
   setListenStatus('🟢 Listening — play Eridian audio near this device', 'active');
   document.getElementById('liveDot').classList.add('live');
 
+  const asm = makeAssembler(transcriptCallbacks());
   const decoder = makeSymbolDecoder(
-    makeAssembler(transcriptCallbacks()),
+    (s, c) => asm.push(s, c, performance.now() / 1000),
     lvl => updateConfBar(lvl)
   );
-  runDecodeLoop(decoder);
+  runDecodeLoop(decoder, asm);
 }
 
 function stopListening(){
@@ -829,7 +1006,7 @@ function stopListening(){
   drawIdleListenerViz();
 }
 
-function runDecodeLoop(decoder){
+function runDecodeLoop(decoder, asm){
   const bufLen = listenerAnalyser.frequencyBinCount;
   const freqData = new Uint8Array(bufLen);
   const sr = listenerAC.sampleRate;
@@ -848,6 +1025,7 @@ function runDecodeLoop(decoder){
     listenerAnalyser.getByteFrequencyData(freqData);
     drawListenerViz(freqData, binW);
     decoder.push(TONE_LOW.map(binEnergy), TONE_HIGH.map(binEnergy), performance.now() / 1000);
+    asm.idleFlush(performance.now() / 1000);
   }
   frame();
 }
@@ -868,13 +1046,21 @@ function transcriptCallbacks(){
       el.appendChild(currentUtterance);
       el.scrollTop = el.scrollHeight;
     },
-    onChar(ch){
+    onMode(mode){
+      document.getElementById('fecDetected').textContent =
+        mode === 'none' ? '' : `FEC: ${mode === 'rs' ? 'Reed–Solomon' : 'checksum'}`;
+    },
+    onWord(text, status){
       if (!currentUtterance) this.onStart();
       const span = document.createElement('span');
-      span.className = 'char-token fresh';
-      span.textContent = ch;
+      span.className = 'word-token fresh ' + (status || 'plain');
+      span.textContent = text + ' ';
+      if (status === 'corrected') span.title = 'corrected by FEC';
+      if (status === 'suspect') span.title = 'failed FEC check — may be garbled';
       currentUtterance.appendChild(span);
       setTimeout(() => span.classList.remove('fresh'), 900);
+      const el = document.getElementById('transcript');
+      el.scrollTop = el.scrollHeight;
     },
     onEnd(){
       setListenStatus('✓ Message received', 'active');
@@ -906,7 +1092,7 @@ function goertzel(samples, start, len, freq, sr){
   return Math.sqrt(Math.max(s1*s1 + s2*s2 - coeff*s1*s2, 0)) / len;
 }
 
-async function loopbackDecode(text, params, mangle){
+async function loopbackDecode(text, params, mangle, detail){
   const sr = 48000;
   const tl = buildTimeline(text, params);   // exact length, no estimating
   const oac = new OfflineAudioContext(1, Math.ceil(sr * (tl.duration + 1)), sr);
@@ -915,9 +1101,12 @@ async function loopbackDecode(text, params, mangle){
   const ch = buf.getChannelData(0);
   if (mangle) mangle(ch);
 
-  let out = '';
-  const assembler = makeAssembler({ onStart(){}, onChar(c){ out += c; }, onEnd(){} });
-  const decoder = makeSymbolDecoder(assembler);
+  const words = [], statuses = [];
+  const asm = makeAssembler({
+    onStart(){}, onEnd(){}, onMode(){},
+    onWord(t, s){ words.push(t); statuses.push(s); },
+  });
+  const decoder = makeSymbolDecoder((s, c) => asm.push(s, c, 0));
   const WIN = 2048, HOP = 512;
   for (let p = 0; p + WIN <= ch.length; p += HOP){
     // raw linear amplitudes — the decoder's checks are ratio-based, and the
@@ -926,7 +1115,9 @@ async function loopbackDecode(text, params, mangle){
     decoder.push(TONE_LOW.map(en), TONE_HIGH.map(en), p / sr);
   }
   decoder.flush();
-  return out;
+  asm.flush();
+  const out = words.join(' ');
+  return detail ? { text: out, statuses } : out;
 }
 
 async function runSelfTest(){
